@@ -1,0 +1,310 @@
+# Copyright 2023 Bytedance Ltd. and/or its affiliates
+
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from model.video_diffusion.models.controlnet3d import ControlNet3DModel
+from model.video_diffusion.models.unet_3d_condition import UNetPseudo3DConditionModel
+from model.video_diffusion.pipelines.pipeline_stable_diffusion_controlnet3d import Controlnet3DStableDiffusionPipeline
+from transformers import DPTForDepthEstimation
+from model.annotator.hed import HEDNetwork
+import torch
+import os
+from einops import rearrange,repeat
+import imageio
+import numpy as np
+import cv2
+import torch.nn.functional as F
+from PIL import Image
+import argparse
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--control_mode', type=str, default='canny', help='support: hed, canny, depth')
+parser.add_argument('--inference_step', type=int, default=20, help='denoising steps for inference')
+parser.add_argument('--guidance_scale', type=float, default=7.5, help='guidance scale')
+parser.add_argument('--seed',  type=int, default=42, help='seed')
+parser.add_argument('--num_sample_frames', type=int, default=10, help='total frames to inference')
+parser.add_argument('--each_sample_frame', type=int, default=10, help='auto-regressive generation for each iteration')
+parser.add_argument('--sampling_rate', type=int, default=1, help='skip sampling from input video')
+parser.add_argument('--height', type=int, default=512, help='ouput height')
+parser.add_argument('--width', type=int, default=512, help='ouput width')
+parser.add_argument('--video_scale', type=float, default=1.5, help='video smoothness scale')
+parser.add_argument('--init_noise_thres', type=float, default=0.1, help='thres for res noise init')
+# parser.add_argument('--input_video',type=str, default='bear.mp4')
+parser.add_argument('--prompt',type=str, default="a bear walking through stars, artstation")
+parser.add_argument('--depth_video',type=str, default='1')
+parser.add_argument('--start', type=int, default=0, help='ouput width')
+parser.add_argument('--end', type=int, default=9, help='ouput width')
+
+args = parser.parse_args()
+
+control_mode = args.control_mode
+num_inference_steps = args.inference_step
+guidance_scale = args.guidance_scale
+seed = args.seed
+# num_sample_frames = args.num_sample_frames
+num_sample_frames = args.end-args.start+1
+sampling_rate = args.sampling_rate
+h, w = args.height, args.width
+video_scale = args.video_scale
+init_noise_thres = args.init_noise_thres
+# video_path = args.input_video
+# testing_prompt = [args.prompt]
+
+each_sample_frame = args.each_sample_frame
+
+
+control_net_path = f"weifeng-chen/controlavideo-{control_mode}"
+unet = UNetPseudo3DConditionModel.from_pretrained(control_net_path,
+                        torch_dtype = torch.float16,
+                        subfolder='unet',
+                        ).to("cuda") 
+controlnet = ControlNet3DModel.from_pretrained(control_net_path,
+                        torch_dtype = torch.float16,
+                        subfolder='controlnet',
+                        ).to("cuda")
+
+if control_mode == 'depth':
+    annotator_model = DPTForDepthEstimation.from_pretrained("Intel/dpt-hybrid-midas").to("cuda")
+elif control_mode == 'canny':
+    annotator_model = None
+elif control_mode == 'hed':
+    # firstly download from https://huggingface.co/wf-genius/controlavideo-hed/resolve/main/hed-network.pth 
+    annotator_model = HEDNetwork('hed-network.pth').to("cuda")
+
+video_controlnet_pipe = Controlnet3DStableDiffusionPipeline.from_pretrained(control_net_path, unet=unet, 
+                        controlnet=controlnet, annotator_model=annotator_model,
+                        torch_dtype = torch.float16,
+                        ).to("cuda")
+
+
+# pipeline_model_path = 'Realistic_Vision_V6.0_B1_noVAE'
+# state_dict_path = os.path.join(pipeline_model_path, "unet", "diffusion_pytorch_model.bin")
+# state_dict = torch.load(state_dict_path, map_location="cpu")
+# video_controlnet_pipe.unet.load_2d_state_dict(state_dict=state_dict)    # reload 2d model.
+
+
+scene_prompts = {
+    "2atrium": "a modern office hallway area featuring a set of metal chairs and a table",
+    "atrium": "a quiet office or library space with black sofas",
+    "canteen": "a brightly lit hallway with blue doors",
+    "corridor": "a well-lit corridor with lockers",
+    "indoor_robust_dark": "a dark indoor area with a table and chairs",
+    "indoor_robust_global": "a dark indoor area with wide-angle view, a table and some chairs",
+    "office": "an office with blue carpeting, featuring a row of beige lockers on the right,",
+    "outdoor_robust_day": "an bright outdoor parking lot d near a modern building with parked cars, trees, streetlights",
+    "outdoor_robust_night": "an outdoor nighttime scene featuring a building, trees, streetlights"
+}
+
+# imgpath="/hdd2/xinyu/IP-Adapter/assets/obv/1/1571936370253077357.png"
+# imgpath="/hdd2/xinyu/IP-Adapter/assets/obv/2/1572189022024970393.png"
+# imgpath="/hdd2/xinyu/IP-Adapter/assets/obv/3/1573146535960244618.png"
+# imgpath="/hdd2/xinyu/IP-Adapter/assets/obv/4/1573147076255248945.png"
+
+
+depthdir='/mnt/nas/T2R_gen/depth/'
+depthfiles=os.listdir(depthdir)
+
+
+firstframe_folder='/mnt/nas/T2R_gen/firstframe-short/'
+
+for depthf in depthfiles:
+    # args.depth_video = depthf.split('.')[0]
+    # depth=np.load(os.path.join(depthdir,depthf))
+    # input_image= depth[0]
+    # if input_image.max()<1:
+    #     input_image = (input_image*255).astype(np.uint8)
+    
+    
+    if 'outdoor' in depthf:
+        prompt='campus'
+    else:
+        prompt='office room'
+    # testing_prompt=[prompt]
+    
+    # for pro in scene_prompts:
+    #     if depthf.startswith(pro):
+    #         prompt=scene_prompts[pro]
+    #         break
+    
+    # old prompts
+    # testing_prompt = [prompt+', best quality, extremely detailed']
+    # nega_prompt=["longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, deformed body, bloated, ugly, unrealistic"]
+    
+    #Realistic Vision
+    # prompt=''
+    testing_prompt=[prompt+'RAW photo, subject, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3, best quality, extremely detailed']
+    nega_prompt=['(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime), text, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, UnrealisticDream']
+    
+    
+    # get video
+    # np_frames, fps_vid = Controlnet3DStableDiffusionPipeline.get_frames_preprocess(video_path, num_frames=num_sample_frames, sampling_rate=sampling_rate, return_np=True)
+    if control_mode == 'depth':
+        # npyfile= '/mnt/nas/T2R_V/' + args.depth_video + '/depthcrafter/newshin/'+ args.depth_video +'_newshin_depth.npy'
+        npyfile = depthdir + depthf
+        print(npyfile)
+        if args.depth_video:
+            depths=np.load(npyfile)
+            # print(depths.shape())
+            depths=depths[args.start:args.end+1:args.sampling_rate]
+            
+            # depths=(depths.max()-depths)/(depths.max()-depths.min())
+            # print(depths.shape())
+            # depths=depths[::2]
+            resized_slices = []
+            for i in range(depths.shape[0]):
+                resized_slice = cv2.resize(depths[i], (512, 512), interpolation=cv2.INTER_NEAREST)
+                resized_slices.append(resized_slice)
+            control_maps = torch.tensor(np.stack(resized_slices), device="cuda", dtype=torch.float32)
+            control_maps = control_maps.unsqueeze(1)
+            print(control_maps.shape)
+        # else:
+        #     frames = torch.from_numpy(np_frames).div(255) * 2 - 1
+        #     frames = rearrange(frames, "f h w c -> c f h w").unsqueeze(0)
+        #     frames = rearrange(frames, 'b c f h w -> (b f) c h w')
+        #     control_maps = video_controlnet_pipe.get_depth_map(frames, h, w, return_standard_norm=False)  # (b f) 1 h w
+        
+    elif control_mode == 'canny':
+        # npfile = '/mnt/nas/T2R_gen/depth/'+args.depth_video +'.npy'
+        foldername='_'.join(depthf.split('_')[:-1])
+        args.start=int(depthf.split('_')[-1][:-4])
+        args.end=args.start+9
+        
+        npfile = '/mnt/nas/T2R_V/'+foldername+'/newshin/'
+        files=sorted(os.listdir(npfile))[args.start:args.end+1:args.sampling_rate]
+        
+        # files=np.load(npfile)
+        # # print(files)
+        # frames=[]
+        # for file in files:
+        #     file=(file*255).astype(np.uint8)
+        #     # path= npyfile+file
+        #     # frame = np.array(Image.open(path))
+        #     # frame = Image.open(path)
+        #     # frame = cv2.imread(path)
+        #     frame = cv2.medianBlur(file, 9)
+        #     frame = cv2.Canny(frame, 50, 100)
+        #     frames.append(frame)
+        
+        frames=[]
+        for file in files:
+            path= npfile+file
+            frame = np.array(Image.open(path))
+            # frame = Image.open(path)
+            # frame = cv2.imread(path)
+            frame = cv2.medianBlur(frame, 9)
+            frame = cv2.Canny(frame, 50, 100)
+            frames.append(frame)
+          
+        control_maps = np.stack(frames)
+        control_maps = repeat(control_maps, 'f h w -> f c h w',c=1)
+        control_maps = torch.from_numpy(control_maps).div(255)  # 0~1
+    
+    
+    
+    
+    
+    
+    # elif control_mode == 'hed':
+    #     control_maps = np.stack([video_controlnet_pipe.get_hed_map(inp) for inp in np_frames])
+    #     control_maps = repeat(control_maps, 'f h w -> f c h w',c=1)
+    #     control_maps = torch.from_numpy(control_maps).div(255)  # 0~1
+    control_maps = control_maps.to(dtype=controlnet.dtype, device=controlnet.device)
+    control_maps = F.interpolate(control_maps, size=(h,w), mode='bilinear', align_corners=False)
+    control_maps = rearrange(control_maps, "(b f) c h w -> b c f h w", f=num_sample_frames)
+    if control_maps.shape[1] == 1:
+        control_maps = repeat(control_maps, 'b c f h w -> b (n c) f h w',  n=3)
+    
+    
+    
+    
+    
+    
+    foldername='_'.join(depthf.split('_')[:-1])
+    starts=int(depthf.split('_')[-1][:-4])
+    ends=starts+9
+    
+    npfile = '/mnt/nas/T2R_V/'+foldername+'/newshin/'
+    files=sorted(os.listdir(npfile))[starts:ends+1:args.sampling_rate]
+    
+    
+    frames=[]
+    for file in files:
+        path= npfile+file
+        frame = np.array(Image.open(path))
+        # frame = Image.open(path)
+        # frame = cv2.imread(path)
+        # frame = cv2.medianBlur(frame, 9)
+        # frame = cv2.Canny(frame, 50, 100)
+        rgb_array = np.stack([frame]*3, axis=-1)
+        frames.append(rgb_array)
+    
+    frames = torch.from_numpy(np.array(frames)).div(255)
+    frames = rearrange(frames, 'f h w c -> f c h w')
+    v2v_input_frames =  torch.nn.functional.interpolate(
+                frames,
+                size=(h, w),
+                mode="bicubic",
+                antialias=True,
+            ) 
+    v2v_input_frames = rearrange(v2v_input_frames, '(b f) c h w -> b c f h w ', f=num_sample_frames)
+    
+    
+    
+    
+    firstframe_file=firstframe_folder+depthf+'.png'
+    firstframe = Image.open(firstframe_file)
+    firstframe = firstframe.resize((h,w),Image.BICUBIC)
+    
+    
+    firstframe_latent=torch.from_numpy(np.load(firstframe_folder+depthf)).to('cuda')
+    
+
+    
+    out = []
+    for i in range(num_sample_frames//each_sample_frame):
+        out1 = video_controlnet_pipe(
+                # controlnet_hint= control_maps[:,:,:each_sample_frame,:,:],
+                # images= v2v_input_frames[:,:,:each_sample_frame,:,:],
+                controlnet_hint=control_maps[:,:,i*each_sample_frame-1:(i+1)*each_sample_frame-1,:,:] if i>0 else control_maps[:,:,:each_sample_frame,:,:],
+                images=v2v_input_frames[:,:,i*each_sample_frame-1:(i+1)*each_sample_frame-1,:,:] if i>0 else v2v_input_frames[:,:,:each_sample_frame,:,:],
+                # first_frame_output=out[-1] if i>0 else None,
+                prompt=testing_prompt,
+                negative_prompt=nega_prompt,
+                num_inference_steps=20,#num_inference_steps,
+                width=w,
+                height=h,
+                guidance_scale=7.5,#guidance_scale,
+                generator=[torch.Generator(device="cuda").manual_seed(seed)],
+                video_scale =2, #video_scale,  # per-frame as negative (>= 1 or set 0)
+                init_noise_by_residual_thres = 0.2,#init_noise_thres,    # residual-based init. larger thres ==> more smooth.
+                controlnet_conditioning_scale=1,
+                fix_first_frame=True,
+                first_frame_output = firstframe,
+                first_frame_output_latent = firstframe_latent,
+                # add_first_frame_by_concat = True,
+                first_frame_ddim_strength = 1,
+                in_domain=True, # whether to use the video model to generate the first frame.
+        )
+        out1 = out1.images[0][0:]    # drop the first frame
+        out.extend(out1)
+    
+    # imageio.mimsave('./testdepth/'+args.depth_video+'.gif', out, fps=10, loop=0)
+    imageio.mimsave('./firstframe-latent/depth-old-short-thermal-7.5-2-1-0.2-42-20-rv/'+depthf+'.gif', out, fps=10, loop=0)
+    # imageio.mimsave('./depth-new-long/'+depthf+'.gif', out, fps=10, loop=0)
+
+    # imageio.mimsave('/mnt/nas/T2R_gen/controlavideo_canny/'+args.depth_video+'.gif', out, fps=10, loop=0)
+    # imageio.mimsave(args.depth_video.split('/')[-1].split('.')[0]+'.gif', out, fps=10)
+    # import IPython
+    # from IPython.display import Image
+    # Image(filename='demo.gif')
