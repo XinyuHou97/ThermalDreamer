@@ -84,10 +84,6 @@ controlnet = ControlNet3DModel.from_pretrained(control_net_path,
                         subfolder='controlnet',
                         ).to("cuda")
 
-# if control_mode == 'depth':
-#     annotator_model = DPTForDepthEstimation.from_pretrained("Intel/dpt-hybrid-midas").to("cuda")
-# elif control_mode == 'canny':
-#     annotator_model = None
 
 
 video_controlnet_pipe = Controlnet3DStableDiffusionPipeline.from_pretrained(control_net_path, unet=unet, 
@@ -107,10 +103,6 @@ scene_prompts = {
     "outdoor_robust_day": "an bright outdoor parking lot d near a modern building with parked cars, trees, streetlights",
 }
 
-# imgpath="/hdd2/xinyu/IP-Adapter/assets/obv/1/1571936370253077357.png"
-# imgpath="/hdd2/xinyu/IP-Adapter/assets/obv/2/1572189022024970393.png"
-# imgpath="/hdd2/xinyu/IP-Adapter/assets/obv/3/1573146535960244618.png"
-# imgpath="/hdd2/xinyu/IP-Adapter/assets/obv/4/1573147076255248945.png"
 
 
 depthdir='/mnt/nas/T2R_gen/depth/'
