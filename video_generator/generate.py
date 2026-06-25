@@ -298,8 +298,8 @@ for i in range(num_sample_frames//each_sample_frame):
             init_noise_by_residual_thres = 0.2,#init_noise_thres,    # residual-based init. larger thres ==> more smooth.
             # controlnet_conditioning_scale=1,
             fix_first_frame=True,
-            first_frame_output = firstframe if args.prompt in ('frame', 'both') else None,
-            first_frame_output_latent = firstframe_latent if args.prompt in ('frame', 'both') else None,
+            first_frame_output = firstframe if (args.prompt in ('frame', 'both') and i == 0) else (out[-1] if i>0 else None),
+            first_frame_output_latent = firstframe_latent if (args.prompt in ('frame', 'both') and i == 0) else None,
             # add_first_frame_by_concat = True,
             # first_frame_ddim_strength = 1,
             in_domain=True, # whether to use the video model to generate the first frame.
