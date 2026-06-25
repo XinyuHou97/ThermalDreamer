@@ -6,10 +6,17 @@ from PIL import Image
 import cv2
 from ip_adapter import IPAdapter
 import numpy as np
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--data", type=str, required=True)
+parser.add_argument("--prompt", type=str, required=True)
+args = parser.parse_args()
+
 base_model_path = "runwayml/stable-diffusion-v1-5"
 vae_model_path = "stabilityai/sd-vae-ft-mse"
-image_encoder_path = "models/image_encoder/"
-ip_ckpt = "models/ip-adapter_sd15.bin"
+image_encoder_path = "scene_latent/models/image_encoder/"
+ip_ckpt = "scene_latent/models/ip-adapter_sd15.bin"
 device = "cuda"
 
 
@@ -52,182 +59,43 @@ pipe = StableDiffusionControlNetPipeline.from_pretrained(
     safety_checker=None
 )
 
-# read image prompt
-# image = Image.open("assets/images/statue.png")
-# depth_map = Image.open("assets/structure_controls/depth.png")
-# image_grid([image.resize((256, 256)), depth_map.resize((256, 256))], 1, 2)
 
 
 # load ip-adapter
 ip_model = IPAdapter(pipe, image_encoder_path, ip_ckpt, device)
 
-
-scene_prompts = {
-    "2atrium": "a modern office hallway area featuring a set of metal chairs and a table",
-    "atrium": "a quiet office or library space with black sofas",
-    "canteen": "a brightly lit hallway with blue doors",
-    "corridor": "a well-lit corridor with lockers",
-    "indoor_robust_dark": "a dark indoor area with a table and chairs",
-    "indoor_robust_global": "a dark indoor area with wide-angle view, a table and some chairs",
-    "office": "an office with blue carpeting, featuring a row of beige lockers on the right,",
-    "outdoor_robust_day": "an bright outdoor parking lot d near a modern building with parked cars, trees, streetlights",
-    "outdoor_robust_night": "an outdoor nighttime scene featuring a building, trees, streetlights"
-}
-
-# image_grid(ims,5,6)
-# image_grid([Image_depth],1,1)
+hint='./data/'+args.data+'/scene-latent/scene_latent_ref.png'
+hintimg=Image.open(hint)
 
 
-# vid=4
-# vid=str(vid)
-
-# startimg=Image.open('assets/obv/'+vid+'start.png')
-# depths=np.load('assets/obv/depths/'+vid+'.npz')
-# depths=depths['depth']
-
-# image_grid([startimg],1,1)
-
-hints=["/mnt/nas/T2R_V/2atrium1/rgb/0000.png",
-"/mnt/nas/T2R_V/atrium0/rgb/0080.png",
-"/mnt/nas/T2R_V/atrium1/rgb/0000.png",
-"/mnt/nas/T2R_V/atrium1/rgb/0000.png",
-"/mnt/nas/T2R_V/canteen0/rgb/0000.png",
-"/mnt/nas/T2R_V/corridor0/rgb/0092.png",
-# "/hdd2/xinyu/ThermalMonoDepth/data/indoor_robust_global/RGB/data/000782.png",
-# "/hdd2/xinyu/ThermalMonoDepth/data/indoor_robust_global/RGB/data/000782.png",
-# "/hdd2/xinyu/ThermalMonoDepth/data/indoor_robust_global/RGB/data/000782.png",
-# "/hdd2/xinyu/ThermalMonoDepth/data/indoor_robust_global/RGB/data/000371.png",
-# "/hdd2/xinyu/ThermalMonoDepth/data/indoor_robust_global/RGB/data/000371.png",
-# "/hdd2/xinyu/ThermalMonoDepth/data/indoor_robust_global/RGB/data/000371.png",
-"/mnt/nas/T2R_V/atrium0/rgb/0000.png",
-"/mnt/nas/T2R_V/atrium0/rgb/0000.png",
-"/mnt/nas/T2R_V/atrium0/rgb/0000.png",
-# "/mnt/nas/T2R_V/000837.png",
-# "/mnt/nas/T2R_V/000837.png",
-# "/mnt/nas/T2R_V/000837.png",
-# "/mnt/nas/T2R_V/2atrium1/rgb/0000.png",
-# "/mnt/nas/T2R_V/2atrium1/rgb/0000.png",
-# "/mnt/nas/T2R_V/2atrium1/rgb/0000.png",
-"/mnt/nas/T2R_V/office0/rgb/0099.png",
-"/mnt/nas/T2R_V/office0/rgb/0099.png",
-"/mnt/nas/T2R_V/office0/rgb/0099.png",
-"/mnt/nas/T2R_V/office0/rgb/0000.png",
-"/mnt/nas/T2R_V/office0/rgb/0000.png",
-"/mnt/nas/T2R_V/outdoor_robust_day10/rgb/000100.png",
-"/mnt/nas/T2R_V/outdoor_robust_day10/rgb/000001.png",
-"/mnt/nas/T2R_V/outdoor_robust_day11/rgb/000770.png",
-"/mnt/nas/T2R_V/outdoor_robust_day11/rgb/000770.png",
-"/mnt/nas/T2R_V/outdoor_robust_day11/rgb/000770.png",
-"/mnt/nas/T2R_V/outdoor_robust_day11/rgb/000770.png"]
+startimg=Image.open('./data/'+args.data+'/thermal-enh/000000.png')
+frame = np.array(startimg)
+frame = cv2.medianBlur(frame, 9)
+frame = cv2.Canny(frame, 50, 100)
 
 
+Image_canny=Image.fromarray(frame)
 
-
-
-folder='/mnt/nas/T2R_gen/depth/'
-
-seqs=sorted(os.listdir(folder))
-
-print(seqs)
-
-# seq='2atrium0_65''/mnt/nas/T2R_gen/depth/'
-
-        
-
-        
-        
-for i, seq in enumerate(seqs):
-    # startimg=Image.open('/mnt/nas/T2R_gen/IP_adaptor/'+seq+'_start.png')
-    foldername='_'.join(seq.split('_')[:-1])
-    starts=int(seq.split('_')[-1][:-4])
-    # ends=starts+9
     
-    npfile = '/mnt/nas/T2R_V/'+foldername+'/newshin/'
-    file=os.listdir(npfile)[starts]
-    
-    # files=np.load(npfile)
-    # # print(files)
-    # frames=[]
-    # for file in files:
-    #     file=(file*255).astype(np.uint8)
-    #     # path= npyfile+file
-    #     # frame = np.array(Image.open(path))
-    #     # frame = Image.open(path)
-    #     # frame = cv2.imread(path)
-    #     frame = cv2.medianBlur(file, 9)
-    #     frame = cv2.Canny(frame, 50, 100)
-    #     frames.append(frame)
-    
+hintimg=hintimg.resize((512,512),Image.BICUBIC)
+Image_canny=Image_canny.resize((512,512),Image.NEAREST)
 
-    path= npfile+file
-    frame = np.array(Image.open(path))
-    # frame = Image.open(path)
-    # frame = cv2.imread(path)
-    frame = cv2.medianBlur(frame, 9)
-    frame = cv2.Canny(frame, 50, 100)
-    # frames.append(frame)
-      
-
-        
-        
-        
-    startimg=Image.open(hints[i])
-    
-    # depths=depths['depth']
-    
-    # for pro in scene_prompts:
-    #     if seq.startswith(pro):
-    #         ppp=scene_prompts[pro]
-    #         break
-    
-    if 'outdoor' in seq:
-        prompt='campus'
-    else:
-        prompt='office room'
-    
-    gen_imgs=[]
-    # for depth in depths:
-        # print(depth)
-    # Image_depth=Image.fromarray((depth*255).astype(np.uint8))
-    
-    Image_canny=Image.fromarray(frame)
-    # image = ip_model.generate(pil_image=startimg, prompt=prompt, image=Image_canny, num_samples=1, num_inference_steps=50, seed=42)
-    # gen_imgs.append(images[0])
-    
-    
-    # ims=[i[0] for i in gen_imgs]
-    
-    # output_path = "/mnt/nas/T2R_gen/firstframe-canny/"+seq+".png"
-    # gen_imgs[0].save(output_path, save_all=True, append_images=gen_imgs[1:], duration=100, loop=0)
-    # image[0].save(output_path)
-    
-    
-    startimg=startimg.resize((512,512),Image.BICUBIC)
-    Image_canny=Image_canny.resize((512,512),Image.NEAREST)
-    print(startimg.size)
-    image = ip_model.generate(pil_image=startimg, prompt=prompt, image=Image_canny, num_samples=1, num_inference_steps=50, seed=42,output_type = "latent")
-    print(image.shape)
-    output_path = "/mnt/nas/T2R_gen/firstframe-canny/"+seq
-    # gen_imgs[0].save(output_path, save_all=True, append_images=gen_imgs[1:], duration=100, loop=0)
-    # image[0].save(output_path)
-    np.save(output_path,image.cpu().numpy())
-        
-    
-    
-    
-    
-    
-    
-    
-    # images = ip_model.generate(pil_image=image, image=depth_map, num_samples=1, num_inference_steps=50, seed=42)
-    # grid = image_grid(images, 1, 1)
-    # grid
-    
-    
+image = ip_model.generate(pil_image=hintimg, prompt=args.prompt, image=Image_canny, num_samples=1, num_inference_steps=50, seed=42)
+output_path = "./data/"+args.data+"/scene-latent/firstframe_canny.png"
+image[0].save(output_path)
 
 
 
 
+# startimg=startimg.resize((512,512),Image.BICUBIC)
+# Image_canny=Image_canny.resize((512,512),Image.NEAREST)
+# print(startimg.size)
+image = ip_model.generate(pil_image=hintimg, prompt=args.prompt, image=Image_canny, num_samples=1, num_inference_steps=50, seed=42,output_type = "latent")
+print(image.shape)
+output_path = "./data/"+args.data+"/scene-latent/firstframe_canny.npy"
+# gen_imgs[0].save(output_path, save_all=True, append_images=gen_imgs[1:], duration=100, loop=0)
+# image[0].save(output_path)
+np.save(output_path,image.cpu().numpy())
 
 
 
