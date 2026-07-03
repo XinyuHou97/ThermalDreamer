@@ -73,8 +73,11 @@ init_noise_thres = args.init_noise_thres
 
 each_sample_frame = args.each_sample_frame
 
+if control_mode == 'fuse':
+    control_net_path = f"weifeng-chen/controlavideo-depth"
+else:
+    control_net_path = f"weifeng-chen/controlavideo-{control_mode}"
 
-control_net_path = f"weifeng-chen/controlavideo-{control_mode}"
 unet = UNetPseudo3DConditionModel.from_pretrained(control_net_path,
                         torch_dtype = torch.float16,
                         subfolder='unet',
@@ -97,7 +100,34 @@ if args.dmodel=='new':
     state_dict = torch.load(state_dict_path, map_location="cpu")
     video_controlnet_pipe.unet.load_2d_state_dict(state_dict=state_dict)    # reload 2d model.
 
+def compute_average_gradient(frames):
+    """
+    frames: NumPy array of shape (num_frames, height, width, 3)
+    returns: a single float representing the average gradient magnitude over all frames.
+    """
+    num_frames, height, width, _ = frames.shape
 
+    # We'll sum all gradient magnitudes and then divide by the total number of pixels.
+    total_grad_sum = 0.0
+    total_pixels = num_frames * height * width
+
+    for i in range(num_frames):
+        # Convert the frame to grayscale: shape (height, width)
+        # Using a standard luminance formula.
+        gray = np.dot(frames[i], [0.2989, 0.5870, 0.1140])
+
+        # np.gradient returns [dy, dx] for a 2D array
+        dy, dx = np.gradient(gray)
+
+        # Gradient magnitude per pixel
+        grad_magnitude = np.sqrt(dx**2 + dy**2)
+
+        # Sum up all pixel gradient magnitudes
+        total_grad_sum += grad_magnitude.sum()
+
+    # Average across all pixels in all frames
+    avg_gradient = total_grad_sum / total_pixels
+    return avg_gradient
 scene_prompts = {
     "office": "an office with blue carpeting, featuring a row of beige lockers on the right,",
     "outdoor_robust_day": "an bright outdoor parking lot d near a modern building with parked cars, trees, streetlights",
@@ -111,8 +141,10 @@ scene_prompts = {
 #     firstframe_folder='/mnt/nas/T2R_gen/firstframe-short/'
 # else:
 #     firstframe_folder='/mnt/nas/T2R_gen/firstframe-canny/'
-
-savefolder='./data/'+args.data+'/video-generated-'+control_mode+'/'
+if control_mode=='fuse':
+    savefolder='./data/'+args.data+'/video-generated-fuse-'+str(args.ratio)+'/'
+else:
+    savefolder='./data/'+args.data+'/video-generated-'+control_mode+'/'
 
 if not os.path.exists(savefolder):
     os.makedirs(savefolder)
@@ -153,7 +185,7 @@ nega_prompt=['(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, 
 
     # get video
     # np_frames, fps_vid = Controlnet3DStableDiffusionPipeline.get_frames_preprocess(video_path, num_frames=num_sample_frames, sampling_rate=sampling_rate, return_np=True)
-if control_mode == 'depth':
+if control_mode in ('depth', 'fuse'):
     # npyfile= '/mnt/nas/T2R_V/' + args.depth_video + '/depthcrafter/newshin/'+ args.depth_video +'_newshin_depth.npy'
     depthdir='./data/'+args.data+'/depth/'+args.data+'.npz'
     depths=np.load(depthdir)['depth']
@@ -171,8 +203,18 @@ if control_mode == 'depth':
     for i in range(depths.shape[0]):
         resized_slice = cv2.resize(depths[i], (512, 512), interpolation=cv2.INTER_NEAREST)
         resized_slices.append(resized_slice)
-    control_maps = torch.tensor(np.stack(resized_slices), device="cuda", dtype=torch.float32)
-    control_maps = control_maps.unsqueeze(1)
+    control_maps_depth = torch.tensor(np.stack(resized_slices), device="cuda", dtype=torch.float32)
+    control_maps_depth = control_maps_depth.unsqueeze(1)
+
+
+    control_maps_depth = control_maps_depth.to(dtype=controlnet.dtype, device=controlnet.device)
+    control_maps_depth = F.interpolate(control_maps_depth, size=(h,w), mode='bilinear', align_corners=False)
+    control_maps_depth = rearrange(control_maps_depth, "(b f) c h w -> b c f h w", f=num_sample_frames)
+    if control_maps_depth.shape[1] == 1:
+        control_maps_depth = repeat(control_maps_depth, 'b c f h w -> b (n c) f h w',  n=3)
+
+
+
         # print(control_maps.shape)
     # else:
     #     frames = torch.from_numpy(np_frames).div(255) * 2 - 1
@@ -180,7 +222,7 @@ if control_mode == 'depth':
     #     frames = rearrange(frames, 'b c f h w -> (b f) c h w')
     #     control_maps = video_controlnet_pipe.get_depth_map(frames, h, w, return_standard_norm=False)  # (b f) 1 h w
     
-elif control_mode == 'canny':
+if control_mode in ('canny', 'fuse'):
     # npfile = '/mnt/nas/T2R_gen/depth/'+args.depth_video +'.npy'
     # foldername='_'.join(depthf.split('_')[:-1])
     # args.start=int(depthf.split('_')[-1][:-4])
@@ -214,9 +256,9 @@ elif control_mode == 'canny':
         frame = cv2.Canny(frame, 50, 100)
         frames.append(frame)
     
-    control_maps = np.stack(frames)
-    control_maps = repeat(control_maps, 'f h w -> f c h w',c=1)
-    control_maps = torch.from_numpy(control_maps).div(255)  # 0~1
+    control_maps_canny = np.stack(frames)
+    control_maps_canny = repeat(control_maps_canny, 'f h w -> f c h w',c=1)
+    control_maps_canny = torch.from_numpy(control_maps_canny).div(255)  # 0~1
 
     
     
@@ -227,11 +269,11 @@ elif control_mode == 'canny':
 #     control_maps = np.stack([video_controlnet_pipe.get_hed_map(inp) for inp in np_frames])
 #     control_maps = repeat(control_maps, 'f h w -> f c h w',c=1)
 #     control_maps = torch.from_numpy(control_maps).div(255)  # 0~1
-control_maps = control_maps.to(dtype=controlnet.dtype, device=controlnet.device)
-control_maps = F.interpolate(control_maps, size=(h,w), mode='bilinear', align_corners=False)
-control_maps = rearrange(control_maps, "(b f) c h w -> b c f h w", f=num_sample_frames)
-if control_maps.shape[1] == 1:
-    control_maps = repeat(control_maps, 'b c f h w -> b (n c) f h w',  n=3)
+    control_maps_canny = control_maps_canny.to(dtype=controlnet.dtype, device=controlnet.device)
+    control_maps_canny = F.interpolate(control_maps_canny, size=(h,w), mode='bilinear', align_corners=False)
+    control_maps_canny = rearrange(control_maps_canny, "(b f) c h w -> b c f h w", f=num_sample_frames)
+    if control_maps_canny.shape[1] == 1:
+        control_maps_canny = repeat(control_maps_canny, 'b c f h w -> b (n c) f h w',  n=3)
 
 
 
@@ -268,16 +310,52 @@ v2v_input_frames =  torch.nn.functional.interpolate(
 v2v_input_frames = rearrange(v2v_input_frames, '(b f) c h w -> b c f h w ', f=num_sample_frames)
 
 
+if control_mode == 'fuse' and args.ratio == -1:
+    depth_image_array=[]
+    for d in depths:
+        img = np.array(Image.fromarray(d).convert('RGB'))
+        depth_image_array.append(img)
+    depth_image_array = np.stack(depth_image_array, axis=0)
+    gradients = compute_average_gradient(depth_image_array)   
+    
+    
+    print(gradients)
+    # continue
+    if gradients < 8:
+        canny_control = 0.75
+    if gradients > 10:
+        canny_control = 0.25
+    else:
+        canny_control = 0.5
+    # print('gradients is ')
+    canny_control = 1 - ((1/6 * gradients -1) * 0.8)
+    print(canny_control)
+    if canny_control > 1:
+        canny_control = 1
+    if canny_control < 0:
+        canny_control = 0
+    print(canny_control)
+
+if control_mode == 'fuse' and args.ratio != -1:
+    canny_control = args.ratio
 
 
-firstframe_file='./data/'+args.data+'/scene-latent/firstframe_'+control_mode+'.png'
+
+if control_mode == 'fuse':
+    firstframe_file='./data/'+args.data+'/scene-latent/firstframe_depth.png'
+    firstframe_latent=torch.from_numpy(np.load('./data/'+args.data+'/scene-latent/firstframe_depth.npy')).to('cuda')
+else:
+    firstframe_file='./data/'+args.data+'/scene-latent/firstframe_'+control_mode+'.png'
+    firstframe_latent=torch.from_numpy(np.load('./data/'+args.data+'/scene-latent/firstframe_'+control_mode+'.npy')).to('cuda')
 firstframe = Image.open(firstframe_file)
 firstframe = firstframe.resize((h,w),Image.BICUBIC)
 
 
-firstframe_latent=torch.from_numpy(np.load('./data/'+args.data+'/scene-latent/firstframe_'+control_mode+'.npy')).to('cuda')
 
-
+if control_mode in ('depth', 'fuse'):
+    control_maps = control_maps_depth
+elif control_mode == 'canny':
+    control_maps = control_maps_canny
 
 out = []
 for i in range(num_sample_frames//each_sample_frame):
@@ -285,8 +363,10 @@ for i in range(num_sample_frames//each_sample_frame):
             # controlnet_hint= control_maps[:,:,:each_sample_frame,:,:],
             # images= v2v_input_frames[:,:,:each_sample_frame,:,:],
             controlnet_hint=control_maps[:,:,i*each_sample_frame-1:(i+1)*each_sample_frame-1,:,:] if i>0 else control_maps[:,:,:each_sample_frame,:,:],
+            controlnet_hint2=control_maps_canny[:,:,i*each_sample_frame-1:(i+1)*each_sample_frame-1,:,:] if i>0 else control_maps[:,:,:each_sample_frame,:,:] if control_mode=='fuse' else None,
             images=v2v_input_frames[:,:,i*each_sample_frame-1:(i+1)*each_sample_frame-1,:,:] if i>0 else v2v_input_frames[:,:,:each_sample_frame,:,:],
             # first_frame_output=out[-1] if i>0 else None,
+            canny_control_ratio = canny_control if control_mode=='fuse' else None,
             prompt=testing_prompt,
             negative_prompt=nega_prompt,
             num_inference_steps=50,#num_inference_steps,
