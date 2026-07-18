@@ -9,6 +9,7 @@ Created on Wed Mar  5 18:14:47 2025
 import os
 from ThermalProcess import *
 import argparse
+import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data", type=str, required=True)
@@ -21,6 +22,8 @@ if not os.path.exists(savefolder):
     os.makedirs(savefolder)
     
 
+start = time.perf_counter()
+
 _,norm_imgs=load_and_normalize_images(thermal_folder)
 
 
@@ -32,4 +35,5 @@ for idx, img in enumerate(imgs):
     cv2.imwrite(os.path.join(savefolder, f"{idx:06d}.png"), img)
 
 
- 
+end = time.perf_counter()
+print(f"Time: {end - start:.4f}s")

@@ -1,0 +1,47 @@
+# ThermalDreamer runtime environment
+# Requirements:
+# - Linux
+# - NVIDIA GPU recommended (>= 12 GB VRAM)
+# - NVIDIA driver compatible with CUDA 11.8
+# - conda or mamba
+name: thermaldreamer
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch=2.0.1
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=11.8
+  - ffmpeg
+  - git
+  - pip:
+      # Core numeric and imaging stack
+      - numpy==1.26.4
+      - pillow
+      - opencv-python==4.7.0.72
+      - matplotlib==3.8.4
+      - imageio==2.27.0
+      - imageio-ffmpeg
+      - mediapy==1.2.0
+      - pywavelets
+
+      # Deep learning and diffusion ecosystem
+      - diffusers==0.29.1
+      - transformers==4.41.2
+      - accelerate==0.30.1
+      - xformers==0.0.20
+      - safetensors
+      - huggingface-hub
+      - einops==0.6.0
+      - decord==0.6.0
+
+      # Project utilities
+      - fire==0.6.0
+      - click
+      - packaging
+      - OpenEXR==3.2.4

@@ -2,6 +2,7 @@ import gc
 import os
 import numpy as np
 import torch
+import time
 
 from diffusers.training_utils import set_seed
 from fire import Fire
@@ -234,6 +235,7 @@ def main(
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
 
+    start_time = time.perf_counter()
     depthcrafter_demo.infer(
         data_path,
         num_inference_steps,
@@ -250,6 +252,8 @@ def main(
         save_npz=save_npz,
         save_exr=save_exr,
     )
+    end_time = time.perf_counter()
+    print(f"Total inference time: {end_time - start_time:.2f} seconds")
     # clear the cache for the next video
     gc.collect()
     torch.cuda.empty_cache()

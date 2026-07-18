@@ -21,7 +21,10 @@ def load_and_normalize_images(folder_path):
     # Initialize lists to store image data and file names
     images = []
     names = []
-    # Load images and store them in a list
+    global_min = None
+    global_max = None
+
+    # Load images and track global min/max without creating a huge concatenated array
     for file_name in image_files:
         file_path = os.path.join(folder_path, file_name)
         # Load image as a grayscale image
@@ -30,15 +33,23 @@ def load_and_normalize_images(folder_path):
             images.append(img)
             names.append(file_name)
 
-    # Concatenate all images to compute the global min and max
-    all_pixels = np.concatenate([img.flatten() for img in images])
-    global_min = all_pixels.min()
-    global_max = all_pixels.max()
+            img_min = float(img.min())
+            img_max = float(img.max())
+            global_min = img_min if global_min is None else min(global_min, img_min)
+            global_max = img_max if global_max is None else max(global_max, img_max)
+
+    if not images:
+        return names, []
+
+    denom = global_max - global_min
+    if denom == 0:
+        normalized_images = [np.zeros_like(img, dtype=np.float32) for img in images]
+        return names, normalized_images
 
     # Normalize images and store them in a dictionary
     normalized_images = []
     for img in images:
-        normalized_img = (img - global_min) / (global_max - global_min)
+        normalized_img = (img - global_min) / denom
         normalized_images.append(normalized_img)
 
     return names,normalized_images
@@ -94,32 +105,43 @@ def ThermalProcess_minmax(image, tmin=-1, tmax=-1):
 def ThermalProcess_rearrange(images, bin_num=30):
     rearrange = []
 
-    tmp_img = np.concatenate([im.flatten() for im in images])
-    hist, bin_edges = np.histogram(tmp_img, bins=bin_num, range=(tmp_img.min(), tmp_img.max()))
-    imgs_max = tmp_img.max()
-    imgs_min = tmp_img.min()
+    if not images:
+        return rearrange
+
+    imgs_min = min(float(im.min()) for im in images)
+    imgs_max = max(float(im.max()) for im in images)
+    if imgs_max == imgs_min:
+        return [im.copy() for im in images]
+
+    hist = np.zeros(bin_num, dtype=np.int64)
+    for im in images:
+        hist += np.histogram(im, bins=bin_num, range=(imgs_min, imgs_max))[0]
+
     itv = (imgs_max - imgs_min) / bin_num
     total_num = hist.sum()
 
+    if total_num == 0 or itv == 0:
+        return [im.copy() for im in images]
+
+    # Precompute affine mapping y = a*x + b for each bin.
+    probs = hist.astype(np.float64) / float(total_num)
+    a = probs / itv
+    cdf_prev = np.concatenate(([0.0], np.cumsum(probs[:-1])))
+    left_edges = imgs_min + itv * np.arange(bin_num, dtype=np.float64)
+    b = (-left_edges * a) + cdf_prev
+
+    upper_edges = imgs_min + itv * np.arange(1, bin_num + 1, dtype=np.float64)
+
     for im in images:  # HW format
-        H, W = im.shape
-        mul_mask_ = np.zeros((bin_num, H, W))
-        sub_mask_ = np.zeros((bin_num, H, W))
-        subhist_new_min = imgs_min
+        flat = im.reshape(-1)
+        bin_idx = np.searchsorted(upper_edges, flat, side='left')
+        bin_idx = np.clip(bin_idx, 0, bin_num - 1)
 
-        for x in range(bin_num):
-            subhist = (im > imgs_min + itv * x) & (im <= imgs_min + itv * (x + 1))
-            if subhist.sum() == 0:
-                continue
-
-            subhist_new_itv = hist[x] / total_num
-            mul_mask_[x, ...] = subhist * (subhist_new_itv / itv)
-            sub_mask_[x, ...] = subhist * (subhist_new_itv / itv * -(imgs_min + itv * x) + subhist_new_min)
-            subhist_new_min += subhist_new_itv
-
-        mul_mask = mul_mask_.sum(axis=0, keepdims=False)
-        sub_mask = sub_mask_.sum(axis=0, keepdims=False)
-        im_ = mul_mask * im + sub_mask
+        # Match original interval behavior: (imgs_min + itv*x, imgs_min + itv*(x+1)]
+        valid = flat > imgs_min
+        out = np.zeros_like(flat, dtype=np.float64)
+        out[valid] = a[bin_idx[valid]] * flat[valid] + b[bin_idx[valid]]
+        im_ = out.reshape(im.shape)
         rearrange.append(im_)
     
     return rearrange

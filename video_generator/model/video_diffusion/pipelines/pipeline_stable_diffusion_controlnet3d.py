@@ -221,6 +221,8 @@ class Controlnet3DStableDiffusionPipeline(SpatioTemporalStableDiffusionPipeline)
         self,
         prompt: Union[str, List[str]],
         controlnet_hint = None,
+        controlnet_hint2 = None,
+        canny_control_ratio = 1.0,
         fps_labels = None,
         height: Optional[int] = None,
         width: Optional[int] = None,

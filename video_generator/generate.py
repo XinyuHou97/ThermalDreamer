@@ -25,6 +25,7 @@ import cv2
 import torch.nn.functional as F
 from PIL import Image
 import argparse
+import time
 
 
 parser = argparse.ArgumentParser()
@@ -357,13 +358,14 @@ if control_mode in ('depth', 'fuse'):
 elif control_mode == 'canny':
     control_maps = control_maps_canny
 
+start = time.perf_counter()
 out = []
 for i in range(num_sample_frames//each_sample_frame):
     out1 = video_controlnet_pipe(
             # controlnet_hint= control_maps[:,:,:each_sample_frame,:,:],
             # images= v2v_input_frames[:,:,:each_sample_frame,:,:],
             controlnet_hint=control_maps[:,:,i*each_sample_frame-1:(i+1)*each_sample_frame-1,:,:] if i>0 else control_maps[:,:,:each_sample_frame,:,:],
-            controlnet_hint2=control_maps_canny[:,:,i*each_sample_frame-1:(i+1)*each_sample_frame-1,:,:] if i>0 else control_maps[:,:,:each_sample_frame,:,:] if control_mode=='fuse' else None,
+            controlnet_hint2=(control_maps_canny[:,:,i*each_sample_frame-1:(i+1)*each_sample_frame-1,:,:] if i>0 else control_maps_canny[:,:,:each_sample_frame,:,:]) if control_mode=='fuse' else None,
             images=v2v_input_frames[:,:,i*each_sample_frame-1:(i+1)*each_sample_frame-1,:,:] if i>0 else v2v_input_frames[:,:,:each_sample_frame,:,:],
             # first_frame_output=out[-1] if i>0 else None,
             canny_control_ratio = canny_control if control_mode=='fuse' else None,
@@ -386,7 +388,8 @@ for i in range(num_sample_frames//each_sample_frame):
     )
     out1 = out1.images[0][0:]    # drop the first frame
     out.extend(out1)
-
+end = time.perf_counter()
+print(f"Time: {end - start:.4f}s")
 # imageio.mimsave('./testdepth/'+args.depth_video+'.gif', out, fps=10, loop=0)
 
 imageio.mimsave(savefolder+args.data+'.gif', out, fps=10, loop=0)
