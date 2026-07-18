@@ -39,8 +39,57 @@
 <section class="section">
   <div class="container is-max-desktop">
     <h2 class="title is-3 has-text-centered">Experimental Results</h2>
+    <h3 class="subtitle is-5 has-text-centered">The left column shows the enhanced thermal input, the middle column shows the RGB video synthesized by ThermalDreamer, and the right column shows the RGB reference.</h3>
 
-    <!-- pair01 ~ pair14，每行一对 -->
+    <div class="result-triple">
+      <img src="./static/images/office_thermal.gif" alt="Result Office Thermal">
+      <img src="./static/images/office.gif" alt="Result Office Synthesized">
+      <img src="./static/images/office_rgb.gif" alt="Result Office Reference">
+    </div>
+
+    <div class="result-triple">
+      <img src="./static/images/outdoor_thermal.gif" alt="Result Outdoor Thermal">
+      <img src="./static/images/outdoor.gif" alt="Result Outdoor Synthesized">
+      <img src="./static/images/outdoor_rgb.gif" alt="Result Outdoor Reference">
+    </div>
+
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Experimental Results - Wildlife</h2>
+    <h3 class="subtitle is-5 has-text-centered">The left column shows the enhanced thermal input, the right column shows the RGB video synthesized by ThermalDreamer.</h3>
+
+    <div class="result-pair">
+      <img src="./static/images/pair01_left.gif"  alt="Result 1 Left">
+      <img src="./static/images/pair01_right.gif" alt="Result 1 Right">
+    </div>
+
+    <div class="result-pair">
+      <img src="./static/images/pair06_left.gif"  alt="Result 6 Left">
+      <img src="./static/images/pair06_right.gif" alt="Result 6 Right">
+    </div>
+
+    <div class="result-pair">
+      <img src="./static/images/pair07_left.gif"  alt="Result 7 Left">
+      <img src="./static/images/pair07_right.gif" alt="Result 7 Right">
+    </div>
+
+    <div class="result-pair">
+      <img src="./static/images/pair08_left.gif"  alt="Result 8 Left">
+      <img src="./static/images/pair08_right.gif" alt="Result 8 Right">
+    </div>
+
+
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Experimental Results - Different Resolutions</h2>
+    <h3 class="subtitle is-5 has-text-centered">Each row represents a different resolution setting, 428x321, 214x160, 107x80, 54x40, and 27x20. The left column shows the enhanced thermal input, the right column shows the RGB video synthesized by ThermalDreamer.</h3>
+
     <div class="result-pair">
       <img src="./static/images/pair01_left.gif"  alt="Result 1 Left">
       <img src="./static/images/pair01_right.gif" alt="Result 1 Right">
@@ -66,28 +115,12 @@
       <img src="./static/images/pair05_right.gif" alt="Result 5 Right">
     </div>
 
-    <div class="result-pair">
-      <img src="./static/images/pair06_left.gif"  alt="Result 6 Left">
-      <img src="./static/images/pair06_right.gif" alt="Result 6 Right">
-    </div>
-
-    <div class="result-pair">
-      <img src="./static/images/pair07_left.gif"  alt="Result 7 Left">
-      <img src="./static/images/pair07_right.gif" alt="Result 7 Right">
-    </div>
-
-    <div class="result-pair">
-      <img src="./static/images/pair08_left.gif"  alt="Result 8 Left">
-      <img src="./static/images/pair08_right.gif" alt="Result 8 Right">
-    </div>
-
-
   </div>
 </section>
 
 <section class="section">
   <div class="container is-max-desktop">
-    <h2 class="title is-3 has-text-centered">Failure Case</h2>
+    <h2 class="title is-3 has-text-centered">Experimental Results - Failure Case</h2>
     <div class="result-pair">
       <img src="./static/images/failure_left.gif" alt="Failure Left">
       <img src="./static/images/failure_right.gif" alt="Failure Right">
@@ -99,7 +132,7 @@
 
 <footer class="footer">
   <div class="container has-text-centered">
-    <p>Project Page.</p>
+    <p>ThermalDreamer Project Page.</p>
     <p>Raw thermal video sources: elephants from <a href="https://doi.org/10.1109/WACV45572.2020.9093284">BIRDSAI</a>, cheetah from <a href="https://doi.org/10.1109/LSENS.2025.3542233">M2S2</a>, possum and kiwi from <a href="https://lila.science/datasets/new-zealand-wildlife-thermal-imaging/">New Zealand Wildlife Thermal Imaging</a>, and rat from <a href="https://doi.org/10.1007/s11263-022-01714-5">Rodent3D</a>.</p>
   </div>
 </footer>
